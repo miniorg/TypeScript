@@ -196,22 +196,23 @@ namespace ts {
         }
 
         function clearPerDirectoryResolutions() {
+            watchFailedLookupLocationOfResolutionCache(perDirectoryResolvedModuleNames);
             perDirectoryResolvedModuleNames.clear();
             nonRelaticeModuleNameCache.clear();
+            watchFailedLookupLocationOfResolutionCache(perDirectoryResolvedTypeReferenceDirectives);
             perDirectoryResolvedTypeReferenceDirectives.clear();
         }
 
         function finishCachingPerDirectoryResolution() {
             allFilesHaveInvalidatedResolution = false;
             filesWithInvalidatedNonRelativeUnresolvedImports = undefined;
+            clearPerDirectoryResolutions();
             directoryWatchesOfFailedLookups.forEach((watcher, path) => {
                 if (watcher.refCount === 0) {
                     directoryWatchesOfFailedLookups.delete(path);
                     watcher.watcher.close();
                 }
             });
-
-            clearPerDirectoryResolutions();
         }
 
         function resolveModuleName(moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost): CachedResolvedModuleWithFailedLookupLocations {
@@ -275,7 +276,7 @@ namespace ts {
                         perDirectoryResolution.set(name, resolution);
                     }
                     resolutionsInFile.set(name, resolution);
-                    watchFailedLookupLocationOfResolution(resolution);
+                    addRefCountToWatchResolution(resolution);
                     if (existingResolution) {
                         stopWatchFailedLookupLocationOfResolution(existingResolution);
                     }
@@ -441,18 +442,24 @@ namespace ts {
             return fileExtensionIsOneOf(path, failedLookupDefaultExtensions);
         }
 
-        function watchFailedLookupLocationOfResolution(resolution: ResolutionWithFailedLookupLocations) {
+        function addRefCountToWatchResolution(resolution: ResolutionWithFailedLookupLocations) {
             // No need to set the resolution refCount
-            if (!resolution.failedLookupLocations || !resolution.failedLookupLocations.length) {
+            if (resolution.failedLookupLocations && resolution.failedLookupLocations.length) {
+                resolution.refCount = (resolution.refCount || 0) + 1;
+            }
+        }
+
+        function watchFailedLookupLocationOfResolution(resolution: ResolutionWithFailedLookupLocations, name: string) {
+            if (!resolution.refCount) {
                 return;
             }
 
-            if (resolution.refCount !== undefined) {
-                resolution.refCount++;
+            if (resolutionHost.getCurrentProgram().getTypeChecker().tryFindAmbientModuleWithoutAugmentations(name)) {
+                // Do not watch ambient module resolutions
+                resolution.refCount = undefined;
                 return;
             }
 
-            resolution.refCount = 1;
             const { failedLookupLocations } = resolution;
             let setAtRoot = false;
             for (const failedLookupLocation of failedLookupLocations) {
@@ -478,6 +485,10 @@ namespace ts {
                 // This is always recursive
                 setDirectoryWatcher(rootDir!, rootPath); // TODO: GH#18217
             }
+        }
+
+        function watchFailedLookupLocationOfResolutionCache<T extends ResolutionWithFailedLookupLocations>(perDirectoryCache: Map<Map<T>>) {
+            perDirectoryCache.forEach(resolutions => resolutions.forEach(watchFailedLookupLocationOfResolution));
         }
 
         function setDirectoryWatcher(dir: string, dirPath: Path, nonRecursive?: boolean) {
