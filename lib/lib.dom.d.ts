@@ -4101,6 +4101,7 @@ interface DocumentEventMap extends GlobalEventHandlersEventMap {
     "readystatechange": Event;
     "reset": Event;
     "scroll": UIEvent;
+    "securitypolicyviolation": SecurityPolicyViolationEvent;
     "seeked": Event;
     "seeking": Event;
     "select": UIEvent;
